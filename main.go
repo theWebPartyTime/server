@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/centrifugal/centrifuge"
+	"github.com/gin-gonic/gin"
 )
 
 func auth(h http.Handler) http.Handler {
@@ -19,15 +20,7 @@ func auth(h http.Handler) http.Handler {
 }
 
 func main() {
-	// router := gin.Default()
-	// router.GET("/", func(context *gin.Context) {
-	// 	context.JSON(200, gin.H{
-	// 		"message": "Welcome to WebPartyTime!",
-	// 	})
-	// })
-
-	// router.Run()
-
+	router := gin.Default()
 	node, err := centrifuge.New(centrifuge.Config{})
 
 	if err != nil {
@@ -71,8 +64,12 @@ func main() {
 			},
 		})
 
-	http.Handle("/w", auth(wsHandler))
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Fatal(err)
-	}
+	router.GET("/", func(context *gin.Context) {
+		context.JSON(200, gin.H{
+			"message": "Welcome to WebPartyTime!",
+		})
+	})
+
+	router.GET("/w", gin.WrapH(auth(wsHandler)))
+	router.Run()
 }
