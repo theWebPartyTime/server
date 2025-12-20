@@ -4,6 +4,8 @@ services:
     build:
         context: ./
         dockerfile: Containerfile.prod
+    environment:
+      - GIN_MODE=release
     ports:
       - "8080:8080"
 
@@ -43,5 +45,3 @@ services:
     
 volumes:
     postgres_data:
-
-

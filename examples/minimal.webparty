@@ -1,0 +1,32 @@
+start = "guess1"
+# start = "intro"
+
+# [intro]
+#     [intro.layout]
+#     type = "basic"
+#     title = "Угадай число"
+#     description = "Игра скоро начнётся"
+
+#         [intro.to.guess]
+#         timer = 5
+
+#         [intro.to.guess1]
+#         timer = 3
+
+[guess1]
+    [guess1.layout]
+    type = "basic"
+    title = "Угадай число"
+    description = "Угадайте число от 1 до 5"
+
+    [guess1.input]
+    title = "Введите число от 1 до 5"
+    description = "Введите вашу догадку"
+    type = "text"
+    correct = "5"
+
+        [guess1.to.end]
+        inputBased = true
+    
+    [guess1.overviewer]
+    type = "winner"
