@@ -30,13 +30,18 @@ start = "intro"
     title = "Введите число от 1 до 5"
     description = "Введите вашу догадку"
     type = "text"
-    correct = "5"
+    correct = "vote"
 
         [guess1.to.end]
-        timer = 5
-
+        timer = 3
+    
     [guess1.overviewer]
     type = "winner"
+    timer = 1
+    
+    [guess1.vote]
+    type = "all"
+    timer = 2
 
 `
 

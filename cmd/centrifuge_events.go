@@ -15,8 +15,8 @@ type createRequest struct {
 }
 
 type response struct {
-	Type    string            `json:"type"`
-	Message map[string]string `json:"message"`
+	Type    string         `json:"type"`
+	Message map[string]any `json:"message"`
 }
 
 func onRPC(node *centrifuge.Node, client *centrifuge.Client) func(centrifuge.RPCEvent, centrifuge.RPCCallback) {
@@ -54,12 +54,12 @@ func onRPC(node *centrifuge.Node, client *centrifuge.Client) func(centrifuge.RPC
 			rmManager().Mu.Lock()
 			defer rmManager().Mu.Unlock()
 
-			roomCode, roomFound := rmManager().RoomCodeByOwner(client.UserID())
-			rmManager().GetRoomMu(roomCode).RLock()
-			defer rmManager().GetRoomMu(roomCode).RUnlock()
+			room, roomMu, roomFound := rmManager().ByOwner(client.UserID())
+			roomMu.RLock()
+			defer roomMu.RUnlock()
 
 			if roomFound {
-				err := startRoom(roomCode)
+				err := room.Start(false)
 				if err != nil {
 					centrifugeError = &centrifuge.Error{
 						Code: 500, Message: err.Error(),
@@ -83,80 +83,60 @@ func onRPC(node *centrifuge.Node, client *centrifuge.Client) func(centrifuge.RPC
 	}
 }
 
-func onUnsubscribe(node *centrifuge.Node, client *centrifuge.Client) func(e centrifuge.UnsubscribeEvent) {
-	return func(e centrifuge.UnsubscribeEvent) {
-		if !channels.IsMain(e.Channel) {
-			roomChannel := channels.AsRoomChannel(e.Channel)
-
-			rmManager().Mu.Lock()
-			defer rmManager().Mu.Unlock()
-
-			rmManager().GetRoomMu(roomChannel.Code).Lock()
-			defer rmManager().GetRoomMu(roomChannel.Code).Unlock()
-
-			rmManager().Left(func() []string {
-				playPresence, _ := node.Presence(channels.GetPlayPrefix() + roomChannel.Code)
-				watchPresence, _ := node.Presence(channels.GetSpectatePrefix() + roomChannel.Code)
-				clients := make([]string, 0)
-
-				for _, clientInfo := range playPresence.Presence {
-					clients = append(clients, clientInfo.UserID)
-				}
-
-				for _, clientInfo := range watchPresence.Presence {
-					clients = append(clients, clientInfo.UserID)
-				}
-
-				return clients
-			}, roomChannel.Code, client.UserID())
-		}
-
-		log.Printf("[%v] left %v", colors.Left(client.UserID()), colors.Left(e.Channel))
-	}
-}
-
-func onSubscribe(client *centrifuge.Client) func(centrifuge.SubscribeEvent, centrifuge.SubscribeCallback) {
+func onSubscribe(node *centrifuge.Node, client *centrifuge.Client) func(centrifuge.SubscribeEvent, centrifuge.SubscribeCallback) {
 	return func(e centrifuge.SubscribeEvent, cb centrifuge.SubscribeCallback) {
-		roomExists := false
-		roomChannel := channels.AsRoomChannel(e.Channel)
-
-		var nickname string
-		json.Unmarshal(e.Data, &nickname)
-
 		rmManager().Mu.Lock()
 		defer rmManager().Mu.Unlock()
 
-		if roomChannel != nil && rmManager().RoomExists(roomChannel.Code) {
-			roomExists = true
-		}
-
-		if !channels.IsValid(e.Channel, roomExists) {
+		if !channels.IsValid(e.Channel) {
 			cb(centrifuge.SubscribeReply{}, centrifuge.ErrorUnknownChannel)
 			return
 		}
 
 		if !channels.IsMain(e.Channel) {
-			if !rmManager().CanJoin(client.UserID(), roomChannel.Code, channels.IsWatch(e.Channel)) {
-				cb(centrifuge.SubscribeReply{}, centrifuge.ErrorPermissionDenied)
-				return
-			}
+			roomChannel := channels.AsRoomChannel(e.Channel)
+			if roomChannel != nil {
+				room, roomMu, roomExists := rmManager().Room(roomChannel.Code)
 
-			if channels.IsPlay(e.Channel) {
-				rmManager().GetRoomMu(roomChannel.Code).Lock()
-				nicknames, _ := json.Marshal(response{
-					Type:    "nicknames",
-					Message: rmManager().GetNicknames(roomChannel.Code),
+				if !roomExists {
+					cb(centrifuge.SubscribeReply{}, centrifuge.ErrorUnknownChannel)
+					return
+				}
+
+				var nickname string
+				json.Unmarshal(e.Data, &nickname)
+
+				if !room.CanJoin(client.UserID(), channels.IsWatch(e.Channel)) {
+					cb(centrifuge.SubscribeReply{}, centrifuge.ErrorPermissionDenied)
+					return
+				}
+
+				nickname = room.Joined(client.UserID(), nickname)
+
+				if channels.IsPlay(e.Channel) {
+					roomMu.Lock()
+					nicknames, _ := json.Marshal(response{
+						Type:    "nicknames",
+						Message: map[string]any{"owner": room.GetOwner(), "all": room.GetNicknames()},
+					})
+					client.Send(nicknames)
+					roomMu.Unlock()
+				}
+
+				newNickname, _ := json.Marshal(response{
+					Type:    "new nickname",
+					Message: map[string]any{client.UserID(): nickname},
 				})
-				client.Send(nicknames)
-				rmManager().Joined(roomChannel.Code, client.UserID(), nickname)
-				rmManager().GetRoomMu(roomChannel.Code).Unlock()
-			}
 
-			channels.UnsubscribeFromRooms(client.Channels(),
-				func(channel string) {
-					client.Unsubscribe(channel)
-				},
-			)
+				node.Publish(e.Channel, newNickname)
+				node.Publish(channels.GetSpectatePrefix()+room.GetCode(), newNickname)
+
+				channels.UnsubscribeFromRooms(client.Channels(),
+					func(channel string) {
+						client.Unsubscribe(channel)
+					},
+				)
+			}
 		}
 
 		log.Printf("[%v] joined %v", colors.Joined(client.UserID()), colors.Joined(e.Channel))
@@ -164,6 +144,40 @@ func onSubscribe(client *centrifuge.Client) func(centrifuge.SubscribeEvent, cent
 		cb(centrifuge.SubscribeReply{
 			Options: centrifugeVisibleSubscription(),
 		}, nil)
+	}
+}
+
+func onUnsubscribe(node *centrifuge.Node, client *centrifuge.Client) func(e centrifuge.UnsubscribeEvent) {
+	return func(e centrifuge.UnsubscribeEvent) {
+		roomChannel := channels.AsRoomChannel(e.Channel)
+
+		if roomChannel != nil {
+			rmManager().Mu.Lock()
+			defer rmManager().Mu.Unlock()
+			room, roomMu, roomExists := rmManager().Room(roomChannel.Code)
+
+			if roomExists {
+				if room.GetOwner() == client.UserID() {
+					roomMu.Lock()
+					rmManager().Close(roomChannel.Code)
+					roomMu.Unlock()
+					playChannel := channels.GetPlayPrefix() + roomChannel.Code
+					watchChannel := channels.GetSpectatePrefix() + roomChannel.Code
+
+					unsubscribeRequest, _ := json.Marshal(response{
+						Type:    "unsubscribe",
+						Message: map[string]any{},
+					})
+
+					node.Publish(playChannel, unsubscribeRequest)
+					node.Publish(watchChannel, unsubscribeRequest)
+
+					log.Printf("[%v] Room closed", colors.Left(room.GetCode()))
+				} else {
+					room.Left(client.UserID())
+				}
+			}
+		}
 	}
 }
 
@@ -182,27 +196,32 @@ func onMessage(client *centrifuge.Client) func(centrifuge.MessageEvent) {
 		rmManager().Mu.Lock()
 		defer rmManager().Mu.Unlock()
 
-		roomCode := channels.PlayingRoomCode(client.Channels())
+		roomCode := channels.PlayRoomCode(client.Channels())
 
 		if roomCode != "" {
-			rmManager().GetRoomMu(roomCode).RLock()
-			defer rmManager().GetRoomMu(roomCode).RUnlock()
-			var input room.Input
-			err := json.Unmarshal(e.Data, &input)
+			room_, roomMu, roomExists := rmManager().Room(roomCode)
 
-			if err == nil {
-				input.UserID = client.UserID()
-				rmManager().AddInput(roomCode, client.UserID(), input)
-			} else {
-				client.Send([]byte("Bad input request"))
+			if roomExists {
+				roomMu.RLock()
+				defer roomMu.RUnlock()
+
+				var input room.Input
+				err := json.Unmarshal(e.Data, &input)
+
+				if err == nil {
+					input.UserID = client.UserID()
+					room_.AddInput(client.UserID(), input)
+				} else {
+					client.Send([]byte("Bad input request"))
+				}
 			}
 		} else {
-			roomCode, exists := rmManager().RoomCodeByOwner(client.UserID())
+			room, roomMu, roomExists := rmManager().ByOwner(client.UserID())
 
-			if exists {
-				rmManager().GetRoomMu(roomCode).RLock()
-				rmManager().StopRoom(roomCode)
-				rmManager().GetRoomMu(roomCode).RUnlock()
+			if roomExists {
+				roomMu.RLock()
+				room.Stop()
+				roomMu.RUnlock()
 			}
 		}
 	}

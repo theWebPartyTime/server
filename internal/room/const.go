@@ -9,11 +9,10 @@ func DefaultManagerConfig() ManagerConfig {
 
 func DefaultRoomConfig() Config {
 	return Config{
-		transferOwnership: false,
-		allowSpectators:   true,
-		rejectJoins:       false,
-		allowAnonymous:    false,
-		autoStart:         true,
+		rejectJoins:     false,
+		autoStart:       false,
+		allowSpectators: true,
+		allowAnonymous:  false,
 	}
 }
 
@@ -21,9 +20,8 @@ func NewManager(config ManagerConfig) *Manager {
 	return &Manager{
 		config: config,
 		refs: refs{
-			codeByOwner: make(map[string]string),
-			roomByCode:  make(map[string]*room),
-			ownerByCode: make(map[string]string),
+			byOwner: make(map[string]*room),
+			byCode:  make(map[string]*room),
 		},
 	}
 }

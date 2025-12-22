@@ -15,7 +15,7 @@ type RoomChannel struct {
 	Code string
 }
 
-func PlayingRoomCode(channels []string) string {
+func PlayRoomCode(channels []string) string {
 	for i := len(channels) - 1; i >= 0; i-- {
 		if IsPlay(channels[i]) {
 			roomChannel := AsRoomChannel(channels[i])
@@ -63,11 +63,13 @@ func IsMain(channel string) bool {
 	return channel == main
 }
 
-func IsValid(channel string, roomExists bool) bool {
+func IsValid(channel string) bool {
 	if channel == main {
 		return true
-	} else if roomExists {
-		roomChannel := AsRoomChannel(channel)
+	}
+
+	roomChannel := AsRoomChannel(channel)
+	if roomChannel != nil {
 		return (roomChannel.Mode == spectateTag || roomChannel.Mode == playTag)
 	}
 

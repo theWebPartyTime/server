@@ -92,12 +92,24 @@ func (partyFlow *PartyFlow) parse(webPartySpec map[string]any) (*PartyQuery, err
 
 		var query PartyQuery
 		query.Name = queryName
+		query.Vote = nil
 
 		queryData := webPartySpec[queryName].(map[string]any)
 
 		query.Layout = mapOrNil(queryData["layout"])
 		query.Input = mapOrNil(queryData["input"])
 		query.Overviewer = mapOrNil(queryData["overviewer"])
+
+		if query.Overviewer != nil {
+			_, overviewerTypeSpecified := query.Overviewer["type"]
+			if !overviewerTypeSpecified {
+				return nil, fmt.Errorf("Overviewer type unspecified (%s).", queryName)
+			}
+
+			if len(query.Overviewer) == 1 {
+				return nil, fmt.Errorf("At least one move condition for overviewer should be included (%s).", queryName)
+			}
+		}
 
 		_, layoutTypeSpecified := query.Layout["type"]
 		if query.Layout != nil && !layoutTypeSpecified {
@@ -114,11 +126,28 @@ func (partyFlow *PartyFlow) parse(webPartySpec map[string]any) (*PartyQuery, err
 			return nil, fmt.Errorf("Input check ('correct') unspecified (%s).", queryName)
 		}
 
-		if inputCorrectSpecified && correctType == "pick" {
+		switch correctType {
+		case "pick":
 			_, inputLimitsExist := query.Input["limits"]
 			if !inputLimitsExist {
 				return nil, fmt.Errorf("Input check 'pick' used while 'limits' are unspecified (%s).", queryName)
 			}
+		case "vote":
+			voteSection := mapOrNil(queryData["vote"])
+			if voteSection == nil {
+				return nil, fmt.Errorf("Input check 'vote' used while [%s.vote] is not present.", queryName)
+			}
+
+			_, votingTypeSpecified := voteSection["type"]
+			if !votingTypeSpecified {
+				return nil, fmt.Errorf("Voting type unspecified (%s).", queryName)
+			}
+
+			if len(voteSection) == 1 {
+				return nil, fmt.Errorf("At least one move condition for voting should be included (%s).", queryName)
+			}
+
+			query.Vote = voteSection
 		}
 
 		nameToQuery[query.Name] = &query

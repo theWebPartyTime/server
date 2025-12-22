@@ -20,7 +20,7 @@ func main() {
 	node.OnConnect(func(client *centrifuge.Client) {
 		client.OnPresenceStats(onPresenceStats())
 		client.OnRPC(onRPC(node, client))
-		client.OnSubscribe(onSubscribe(client))
+		client.OnSubscribe(onSubscribe(node, client))
 		client.OnUnsubscribe(onUnsubscribe(node, client))
 		client.OnMessage(onMessage(client))
 	})

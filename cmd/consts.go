@@ -10,7 +10,7 @@ import (
 )
 
 const socketPath = "/join"
-const scriptsPath = "../examples/"
+const scriptsPath = "../scripts/"
 
 var roomManagerOnce sync.Once
 var roomManager *room.Manager

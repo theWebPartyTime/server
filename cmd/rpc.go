@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/theWebPartyTime/server/internal/colors"
 	"github.com/theWebPartyTime/server/internal/conditions"
 	"github.com/theWebPartyTime/server/internal/input"
 	"github.com/theWebPartyTime/server/internal/partyflow"
@@ -17,36 +16,21 @@ func createRoom(owner string, hash string,
 	sendToPlayers func(string, []byte), sendToSpectators func(string, []byte)) (string, error) {
 
 	filePath := scriptsPath + hash
-	fileStat, err := os.Stat(filePath)
-
-	if err != nil || fileStat.IsDir() {
-		return "", fmt.Errorf("Could not get WebPartySpec at hash <%v>.", hash)
-	}
-
-	roomCode, err := rmManager().AllocateRoom(owner, room.DefaultRoomConfig())
-
-	if err != nil {
-		return "", fmt.Errorf("Room allocation failed:\n\t- %w", err)
-	}
-
-	log.Printf("[%v] --> %v", colors.RPC(owner), colors.RPC(roomCode))
 	partyFlow, err := partyflow.New().FromFile(filePath, os.Stdout)
-
 	if err != nil {
 		return "", fmt.Errorf("PartyFlow build failed:\n\t- %w", err)
 	}
 
+	room, err := rmManager().Allocate(owner, room.DefaultRoomConfig())
+	if err != nil {
+		return "", fmt.Errorf("Room allocation failed:\n\t- %w", err)
+	}
+
 	partyFlow.AddInputChecker("text", input.GetTextChecker())
 	partyFlow.AddCondition("timer", conditions.Timer, nil)
-
-	channel, _ := rmManager().GetChannel(roomCode, "input-ready")
 	partyFlow.AddCondition("inputBased", conditions.Input,
-		map[string]any{"channel": channel},
+		map[string]any{"channel": room.GetInputReadyChannel()},
 	)
-
-	partyFlow.OnMove(func() {
-		rmManager().ClearInputs(roomCode)
-	})
 
 	partyFlow.OnQuery(func(partyQuery *partyflow.PartyQuery) {
 		if partyQuery.Input != nil {
@@ -59,67 +43,83 @@ func createRoom(owner string, hash string,
 			input["step"] = partyQuery.Step
 
 			inputData, _ := json.Marshal(input)
-			sendToPlayers(roomCode, inputData)
+			sendToPlayers(room.GetCode(), inputData)
 		}
 
 		if partyQuery.Layout != nil {
 			layoutData, _ := json.Marshal(partyQuery.Layout)
-			sendToSpectators(roomCode, layoutData)
+			sendToSpectators(room.GetCode(), layoutData)
 		}
 	})
 
-	partyFlow.OnPickWinners(func(partyQuery *partyflow.PartyQuery) []string {
+	partyFlow.OnGetWinners(func(partyQuery *partyflow.PartyQuery) []string {
 		winners := []string{}
-		inputs := rmManager().GetInputs(roomCode)
+		if partyQuery.Input == nil {
+			return winners
+		}
+
+		inputs := room.GetInputs()
+		var voteMap map[string]int = nil
+
 		queryType := partyQuery.Input["type"].(string)
-
 		if queryType == "voting" {
-			voteMap := make(map[string]int)
+			voteMap = make(map[string]int)
+		}
 
-			for _, input := range inputs {
-				contentType := input.Type
-				log.Printf("User passed type %v on step %v as current step was at %v and type - %v\n",
-					contentType, input.Step, partyQuery.Step, queryType)
+		for _, input := range inputs {
+			inputType := input.Type
+			if inputType != "input" {
+				log.Printf("Wrong input type sent in by <%s>", input.UserID)
+				continue
+			}
 
-				if input.Step != partyQuery.Step || contentType != queryType {
-					log.Print("User input relevance check failed")
-					continue
-				}
+			step, ok := input.Content["step"].(float64)
+			if !ok {
+				log.Printf("Step not specified or specified incorrectly by <%s>", input.UserID)
+				continue
+			}
 
-				_, ok := voteMap[input.Content]
+			message, ok := input.Content["message"].(string)
+			if !ok {
+				log.Printf("Content input not specified or specified incorrectly by <%s>", input.UserID)
+				continue
+			}
 
+			contentType, ok := input.Content["type"].(string)
+			log.Printf("User passed type %v\n", contentType)
+			if !ok {
+				log.Printf("Content input type not specified or specified incorrectly by <%s>", input.UserID)
+				continue
+			}
+
+			if contentType != queryType || step != float64(partyQuery.Step) {
+				log.Printf("User <%s> input relevance check failed: tried step %v, type %v (when need step %v, type %v)",
+					input.UserID, step, contentType, partyQuery.Step, queryType)
+				continue
+			}
+
+			if queryType == "voting" {
+				_, ok = voteMap[message]
 				if !ok {
-					voteMap[input.Content] = 0
+					voteMap[message] = 0
+				}
+				voteMap[message] += 1
+
+				votingWinner := ""
+				maxVotes := 0
+				for user, votes := range voteMap {
+					if votes > maxVotes {
+						votingWinner = user
+						maxVotes = votes
+					}
 				}
 
-				voteMap[input.Content] += 1
-			}
+				log.Printf("Voting concluded with: %v", voteMap)
 
-			votingWinner := ""
-			maxVotes := 0
-
-			for user, votes := range voteMap {
-				if votes > maxVotes {
-					votingWinner = user
-					maxVotes = votes
+				if votingWinner != "" {
+					winners = append(winners, votingWinner)
 				}
-			}
-
-			log.Printf("Voting concluded with: %v", voteMap)
-
-			if votingWinner != "" {
-				winners = append(winners, votingWinner)
-			}
-		} else {
-			for user, input := range inputs {
-				contentType := input.Type
-				log.Printf("User passed type %v\n", contentType)
-
-				if input.Step != partyQuery.Step || contentType != queryType {
-					log.Print("User input relevance check failed")
-					continue
-				}
-
+			} else {
 				correct := partyQuery.Input["correct"]
 				checker := partyFlow.GetInputChecker(queryType)
 
@@ -131,9 +131,9 @@ func createRoom(owner string, hash string,
 					log.Printf("Picked correct option to be %v\n", correct)
 				}
 
-				if checker.IsCorrect(input.Content, correct) {
-					log.Printf("User %v won\n", user)
-					winners = append(winners, user)
+				if checker.IsCorrect(message, correct) {
+					log.Printf("User %v won\n", input.UserID)
+					winners = append(winners, input.UserID)
 				}
 			}
 		}
@@ -141,28 +141,39 @@ func createRoom(owner string, hash string,
 		return winners
 	})
 
-	partyFlow.SetGetVoteCandidates(func() map[string]string {
+	partyFlow.OnGetVoteCandidates(func(partyQuery *partyflow.PartyQuery) map[string]string {
 		res := make(map[string]string)
 
-		for _, input := range rmManager().GetInputs(roomCode) {
-			res[input.UserID] = input.Content
+		for _, input := range room.GetInputs() {
+			res[input.UserID] = input.Content["message"].(string)
 		}
 
 		return res
 	})
 
-	partyFlow.OnFinished(func() {
-		null, _ := json.Marshal(nil)
-		sendToPlayers(roomCode, null)
-		sendToSpectators(roomCode, null)
-		rmManager().StopRoom(roomCode)
+	partyFlow.OnMove(func() {
+		room.ClearInputs()
 	})
 
-	rmManager().AttachPartyFlow(roomCode, partyFlow)
+	partyFlow.OnFinished(func() {
+		null, _ := json.Marshal(nil)
+		sendToPlayers(room.GetCode(), null)
+		sendToSpectators(room.GetCode(), null)
+		room.Stop()
+	})
 
-	return roomCode, nil
+	room.AttachPartyFlow(partyFlow)
+
+	return room.GetCode(), nil
 }
 
 func startRoom(roomCode string) error {
-	return rmManager().StartRoom(roomCode, false)
+	room, _, exists := rmManager().Room(roomCode)
+
+	if exists {
+		return room.Start(false)
+
+	}
+
+	return fmt.Errorf("Room <%s> not found.", roomCode)
 }

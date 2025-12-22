@@ -1,17 +1,13 @@
-start = "guess1"
-# start = "intro"
+start = "intro"
 
-# [intro]
-#     [intro.layout]
-#     type = "basic"
-#     title = "Угадай число"
-#     description = "Игра скоро начнётся"
+[intro]
+    [intro.layout]
+    type = "basic"
+    title = "Угадай число"
+    description = "Игра скоро начнётся"
 
-#         [intro.to.guess]
-#         timer = 5
-
-#         [intro.to.guess1]
-#         timer = 3
+        [intro.to.guess1]
+        timer = 3
 
 [guess1]
     [guess1.layout]
@@ -23,10 +19,12 @@ start = "guess1"
     title = "Введите число от 1 до 5"
     description = "Введите вашу догадку"
     type = "text"
-    correct = "5"
+    limits = ["1", "2", "3", "4", "5"]
+    correct = "pick"
 
         [guess1.to.end]
         inputBased = true
     
     [guess1.overviewer]
     type = "winner"
+    timer = 2

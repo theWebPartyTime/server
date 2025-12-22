@@ -22,12 +22,12 @@ type PartyFlow struct {
 	conditionCheckers map[string]func(any, map[string]any) <-chan struct{}
 	conditionArgs     map[string]map[string]any
 
-	onQuery           func(*PartyQuery)
-	onMove            func()
-	onFinished        func()
-	getVoteCandidates func() map[string]string
-	getWinners        func(*PartyQuery) []string
-	winners           map[string]int
+	onQuery             func(*PartyQuery)
+	onMove              func()
+	onFinished          func()
+	onGetVoteCandidates func(*PartyQuery) map[string]string
+	onGetWinners        func(*PartyQuery) []string
+	winners             map[string]int
 
 	stepCounter    atomic.Int64
 	skipGetWinners bool
@@ -44,6 +44,7 @@ type conditionalMove struct {
 type PartyQuery struct {
 	Name         string
 	Overviewer   map[string]any
+	Vote         map[string]any
 	Input        map[string]any
 	Layout       map[string]any
 	NextVariants []conditionalMove
@@ -52,20 +53,20 @@ type PartyQuery struct {
 
 func New() *PartyFlow {
 	partyFlow := PartyFlow{
-		start:             nil,
-		conditionCheckers: make(map[string]func(any, map[string]any) <-chan struct{}),
-		inputCheckers:     make(map[string]input.Checker),
-		conditionArgs:     make(map[string]map[string]any),
-		winners:           make(map[string]int),
-		onQuery:           func(pq *PartyQuery) {},
-		getWinners:        func(pq *PartyQuery) []string { return []string{} },
-		skipGetWinners:    false,
-		context:           nil,
-		stop:              nil,
-		onMove:            func() {},
-		onFinished:        func() {},
-		getVoteCandidates: func() map[string]string { return map[string]string{} },
-		logger:            nil,
+		start:               nil,
+		conditionCheckers:   make(map[string]func(any, map[string]any) <-chan struct{}),
+		inputCheckers:       make(map[string]input.Checker),
+		conditionArgs:       make(map[string]map[string]any),
+		winners:             make(map[string]int),
+		onQuery:             func(pq *PartyQuery) {},
+		onGetWinners:        func(pq *PartyQuery) []string { return []string{} },
+		skipGetWinners:      false,
+		context:             nil,
+		stop:                nil,
+		onMove:              func() {},
+		onFinished:          func() {},
+		onGetVoteCandidates: func(*PartyQuery) map[string]string { return map[string]string{} },
+		logger:              nil,
 	}
 
 	return &partyFlow
@@ -82,7 +83,8 @@ func (partyFlow *PartyFlow) next(choice int) (*PartyQuery, error) {
 
 func (partyFlow *PartyFlow) Start() {
 	if partyFlow.start == nil {
-		partyFlow.logger.Panicf("%v", colors.Error("WebPartySpec not loaded."))
+		partyFlow.logger.Printf("%v", colors.Error("WebPartySpec not loaded."))
+		return
 	}
 
 	defer func() {
@@ -92,7 +94,7 @@ func (partyFlow *PartyFlow) Start() {
 			partyFlow.current = nil
 		}
 
-		partyFlow.logger.Printf("PartyFlow finished")
+		partyFlow.logger.Printf("PartyFlow finished.")
 		partyFlow.onFinished()
 	}()
 
@@ -161,7 +163,7 @@ func (partyFlow *PartyFlow) Start() {
 			partyFlow.skipGetWinners = false
 		} else {
 			<-time.After(200 * time.Millisecond)
-			winners := partyFlow.getWinners(partyFlow.current)
+			winners := partyFlow.onGetWinners(partyFlow.current)
 			for _, winner := range winners {
 				_, ok := partyFlow.winners[winner]
 
@@ -191,33 +193,38 @@ func (partyFlow *PartyFlow) Start() {
 		}
 
 		if votingQueried {
-			var votingMoveDelay int64 = 5
-			votingWaitSeconds, votingTimerSpecified := partyFlow.current.Input["timer"]
-			if votingTimerSpecified {
-				votingMoveDelay = votingWaitSeconds.(int64)
+			moveWhen := make(map[string]any)
+
+			for key, value := range partyFlow.current.Vote {
+				if key != "type" {
+					moveWhen[key] = value
+				}
 			}
 
 			nextQuery = &PartyQuery{
-				Name:         fmt.Sprintf("%s (voting)", partyFlow.current.Name),
-				Layout:       nil,
-				Input:        map[string]any{"type": "voting", "candidates": partyFlow.getVoteCandidates()},
+				Name:   fmt.Sprintf("%s (voting)", partyFlow.current.Name),
+				Layout: nil,
+				Input: map[string]any{"type": "vote " + partyFlow.current.Vote["type"].(string),
+					"candidates": partyFlow.onGetVoteCandidates(partyFlow.current)},
 				Overviewer:   partyFlow.current.Overviewer,
-				NextVariants: partyFlow.timedConditionalMove(int(votingMoveDelay), next),
+				NextVariants: []conditionalMove{{to: next, when: moveWhen}},
 			}
 		} else if overviewerQueried {
-			var overviewerMoveDelay int64 = 5
-			overviewerWaitSeconds, overviewerTimerSpecified := partyFlow.current.Overviewer["timer"]
-			if overviewerTimerSpecified {
-				overviewerMoveDelay = overviewerWaitSeconds.(int64)
+			moveWhen := make(map[string]any)
+
+			for key, value := range partyFlow.current.Overviewer {
+				if key != "type" {
+					moveWhen[key] = value
+				}
 			}
 
 			nextQuery = &PartyQuery{
 				Name: fmt.Sprintf("%s (overviewer)", partyFlow.current.Name),
-				Layout: map[string]any{"type": partyFlow.current.Overviewer["type"],
+				Layout: map[string]any{"type": "overviewer " + partyFlow.current.Overviewer["type"].(string),
 					"winners": partyFlow.winners},
 				Input:        nil,
 				Overviewer:   nil,
-				NextVariants: partyFlow.timedConditionalMove(int(overviewerMoveDelay), next),
+				NextVariants: []conditionalMove{{to: next, when: moveWhen}},
 			}
 
 			partyFlow.skipGetWinners = true
@@ -259,25 +266,16 @@ func (partyQuery *PartyQuery) setMoveToNilIfNoVariants() {
 	}
 }
 
-func (partyFlow *PartyFlow) timedConditionalMove(seconds int, to *PartyQuery) []conditionalMove {
-	return []conditionalMove{
-		{
-			to:   to,
-			when: map[string]any{"timer": int64(seconds)},
-		},
-	}
-}
-
 func (partyFlow *PartyFlow) GetStep() int {
 	return int(partyFlow.stepCounter.Load())
 }
 
-func (partyFlow *PartyFlow) OnPickWinners(cb func(*PartyQuery) []string) {
-	partyFlow.getWinners = cb
+func (partyFlow *PartyFlow) OnGetWinners(cb func(*PartyQuery) []string) {
+	partyFlow.onGetWinners = cb
 }
 
-func (partyFlow *PartyFlow) SetGetVoteCandidates(getCandidates func() map[string]string) {
-	partyFlow.getVoteCandidates = getCandidates
+func (partyFlow *PartyFlow) OnGetVoteCandidates(getCandidates func(*PartyQuery) map[string]string) {
+	partyFlow.onGetVoteCandidates = getCandidates
 }
 
 func (partyFlow *PartyFlow) OnQuery(cb func(*PartyQuery)) {

@@ -1,17 +1,31 @@
 package room
 
 import (
+	"errors"
+	"log"
 	"sync"
 
+	"github.com/theWebPartyTime/server/internal/colors"
 	"github.com/theWebPartyTime/server/internal/partyflow"
 )
 
 type Config struct {
-	transferOwnership bool
-	allowSpectators   bool
-	rejectJoins       bool
-	allowAnonymous    bool
-	autoStart         bool
+	allowSpectators bool
+	rejectJoins     bool
+	allowAnonymous  bool
+	autoStart       bool
+}
+
+type Input struct {
+	Type    string         `json:"type"`
+	UserID  string         `json:"userID"`
+	Content map[string]any `json:"content"`
+}
+
+type TypeInput struct {
+	Step    int    `json:"step"`
+	Type    string `json:"type"`
+	Message string `json:"message"`
 }
 
 type roomState int
@@ -21,45 +35,174 @@ const (
 	Ongoing
 )
 
-type Input struct {
-	Step    int    `json:"step"`
-	Content string `json:"content"`
-	UserID  string `json:"userID"`
-	Type    string `json:"type"`
-}
-
 type room struct {
-	partyFlow   *partyflow.PartyFlow
-	config      Config
-	state       roomState
-	channels    map[string]chan any
-	inputs      map[string]Input
-	nicknames   map[string]string
-	hasNickname map[string]any
-	mu          sync.RWMutex
+	config Config
+	state  roomState
+	mu     sync.RWMutex
+
+	code           string
+	owner          string
+	channels       map[string]chan any
+	inputs         map[string]Input
+	nicknames      map[string]string
+	nicknameExists map[string]any
+
+	partyFlow *partyflow.PartyFlow
 }
 
-func (manager *Manager) Left(getRoomClients func() []string, roomCode string, user string) {
-	nickname, _ := manager.refs.roomByCode[roomCode].nicknames[user]
-	delete(manager.refs.roomByCode[roomCode].nicknames, user)
-	delete(manager.refs.roomByCode[roomCode].hasNickname, nickname)
+func (room *room) CanJoin(user string, spectatorMode bool) bool {
+	if room.isOwner(user) {
+		return true
+	}
+
+	return !((room.config.rejectJoins) ||
+		(room.config.allowSpectators && room.state == Ongoing && !spectatorMode) ||
+		(!room.config.allowSpectators && spectatorMode))
 }
 
-func (manager *Manager) GetNicknames(roomCode string) map[string]string {
-	return manager.refs.roomByCode[roomCode].nicknames
-}
-
-func (manager *Manager) Joined(roomCode string, user string, nickname string) {
-	_, exists := manager.refs.roomByCode[roomCode].hasNickname[nickname]
+func (room *room) Joined(user string, nickname string) string {
+	_, exists := room.nicknameExists[nickname]
 
 	if exists {
 		nickname = nickname + " (" + user[:2] + "...)"
 	}
 
-	manager.refs.roomByCode[roomCode].hasNickname[nickname] = nil
-	manager.refs.roomByCode[roomCode].nicknames[user] = nickname
+	room.nicknameExists[nickname] = nil
+	room.nicknames[user] = nickname
+	return nickname
 }
 
-func (manager *Manager) AttachPartyFlow(roomCode string, partyFlow *partyflow.PartyFlow) {
-	manager.refs.roomByCode[roomCode].partyFlow = partyFlow
+func (room *room) Left(user string) {
+	nickname, _ := room.nicknames[user]
+	delete(room.nicknameExists, nickname)
+	delete(room.nicknames, user)
+	room.removeInput(user)
+	room.checkInputsReady()
+	log.Printf("[%v] left %v", colors.Left(user), colors.Left(room.GetCode()))
+}
+
+func (room *room) GetNicknames() map[string]string {
+	return room.nicknames
+}
+
+func (room *room) AttachPartyFlow(partyFlow *partyflow.PartyFlow) {
+	room.partyFlow = partyFlow
+}
+
+func (room *room) AddChannel(name string, channel chan any) {
+	room.channels[name] = channel
+}
+
+func (room *room) RemoveChannel(name string, channel chan any) {
+	delete(room.channels, name)
+}
+
+func (room *room) GetChannel(roomCode string, name string) (chan any, bool) {
+	channel, ok := room.channels[name]
+	return channel, ok
+}
+
+func (room *room) GetInputReadyChannel() chan any {
+	return room.channels["input-ready"]
+}
+
+func (room *room) AddInput(user string, input Input) {
+	_, ok := room.inputs[user]
+	if !ok {
+		room.inputs[user] = input
+	}
+
+	room.checkInputsReady()
+}
+
+func (room *room) GetInputs() map[string]Input {
+	return room.inputs
+}
+
+func (room *room) ClearInputs() {
+clear:
+	for {
+		select {
+		case <-room.channels["input-ready"]:
+		default:
+			break clear
+		}
+	}
+
+	clear(room.inputs)
+}
+
+func (room *room) removeInput(user string) {
+	delete(room.inputs, user)
+	room.checkInputsReady()
+}
+
+func (room *room) checkInputsReady() {
+	inputs := room.inputs
+	online := len(room.nicknames) - 1
+
+	if room.state == Open && room.config.autoStart && len(inputs) == online {
+		room.Start(false)
+		room.ClearInputs()
+	} else {
+		filteredByStep := 0
+
+		for _, input := range inputs {
+			if input.Content["step"].(float64) == float64(room.partyFlow.GetStep()) {
+				filteredByStep += 1
+			}
+		}
+
+		if filteredByStep == online {
+			channel, _ := room.channels["input-ready"]
+			channel <- struct{}{}
+		}
+	}
+
+}
+
+func (room *room) GetCode() string {
+	return room.code
+}
+
+func (room *room) GetOwner() string {
+	return room.owner
+}
+
+func (room *room) Start(restartIfOngoing bool) error {
+	if restartIfOngoing && room.state == Ongoing {
+		room.Stop()
+	}
+
+	if room.state == Open {
+		room.state = Ongoing
+		go room.partyFlow.Start()
+
+		log.Printf("--> %v started", colors.RPC(room.code))
+
+		return nil
+	}
+
+	return errors.New("Room currently has an ongoing game.")
+}
+
+func (room *room) Stop() {
+	room.partyFlow.Stop()
+
+	for _, channel := range room.channels {
+	clear:
+		for {
+			select {
+			case <-channel:
+			default:
+				break clear
+			}
+		}
+	}
+
+	room.state = Open
+}
+
+func (room *room) isOwner(owner string) bool {
+	return room.owner == owner
 }

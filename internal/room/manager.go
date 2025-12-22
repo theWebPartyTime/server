@@ -16,9 +16,8 @@ type ManagerConfig struct {
 }
 
 type refs struct {
-	codeByOwner map[string]string
-	roomByCode  map[string]*room
-	ownerByCode map[string]string
+	byOwner map[string]*room
+	byCode  map[string]*room
 }
 
 type Manager struct {
@@ -27,26 +26,8 @@ type Manager struct {
 	Mu     sync.RWMutex
 }
 
-func (manager *Manager) makeRoom(config Config, roomCode string, owner string) *room {
-	room := room{
-		partyFlow:   nil,
-		config:      config,
-		state:       Open,
-		nicknames:   make(map[string]string),
-		channels:    make(map[string]chan any),
-		inputs:      make(map[string]Input),
-		hasNickname: make(map[string]any),
-	}
-
-	manager.refs.roomByCode[roomCode] = &room
-	manager.refs.codeByOwner[owner] = roomCode
-	manager.refs.ownerByCode[roomCode] = owner
-
-	return &room
-}
-
-func (manager *Manager) AllocateRoom(
-	owner string, config Config) (string, error) {
+func (manager *Manager) Allocate(
+	owner string, config Config) (*room, error) {
 
 	var codeBuilder strings.Builder
 	for i := 0; i < manager.config.allocationRetryLimit; i++ {
@@ -54,35 +35,65 @@ func (manager *Manager) AllocateRoom(
 		roomCode := codeBuilder.String()
 		codeBuilder.Reset()
 
-		_, roomExists := manager.refs.roomByCode[roomCode]
+		_, roomExists := manager.refs.byCode[roomCode]
 
 		if !roomExists {
-			manager.makeRoom(config, roomCode, owner)
-			manager.AddChannel(roomCode, "input-ready", make(chan any))
-			return roomCode, nil
+			room := manager.makeRoom(config, roomCode, owner)
+			log.Printf("[%v] --> %v", colors.RPC(owner), colors.RPC(roomCode))
+			return room, nil
 		}
 	}
 
-	return "", errors.New("Could not allocate a new room code.")
+	return nil, errors.New("Could not allocate a new room code.")
 }
 
-func (manager *Manager) closeRoom(roomCode string) {
-	manager.StopRoom(roomCode)
-	// owner, _ := manager.refs.ownerByCode[roomCode]
+func (manager *Manager) Close(roomCode string) {
+	room, _, ok := manager.Room(roomCode)
 
-	// delete(manager.refs.codeByOwner, owner)
-	// delete(manager.refs.ownerByCode, roomCode)
-	// delete(manager.refs.roomByCode, roomCode)
+	if ok {
+		room.Stop()
+		delete(manager.refs.byOwner, room.owner)
+		delete(manager.refs.byCode, room.code)
+	}
 }
 
-func (manager *Manager) ownsRoom(owner string, roomCode string) bool {
-	ownsRoomCode, ownsAny := manager.refs.codeByOwner[owner]
+func (manager *Manager) Room(roomCode string) (*room, *sync.RWMutex, bool) {
+	var mu *sync.RWMutex = nil
+	room, exists := manager.refs.byCode[roomCode]
 
-	if ownsAny {
-		return ownsRoomCode == roomCode
+	if exists {
+		mu = &room.mu
 	}
 
-	return false
+	return room, mu, exists
+}
+
+func (manager *Manager) ByOwner(owner string) (*room, *sync.RWMutex, bool) {
+	room, ok := manager.refs.byOwner[owner]
+
+	if ok {
+		return room, &room.mu, true
+	}
+
+	return nil, nil, false
+}
+
+func (manager *Manager) makeRoom(config Config, roomCode string, owner string) *room {
+	room := room{
+		partyFlow:      nil,
+		config:         config,
+		state:          Open,
+		nicknames:      make(map[string]string),
+		channels:       map[string]chan any{"input-ready": make(chan any)},
+		inputs:         make(map[string]Input),
+		nicknameExists: make(map[string]any),
+		owner:          owner,
+		code:           roomCode,
+	}
+
+	manager.refs.byCode[roomCode] = &room
+	manager.refs.byOwner[owner] = &room
+	return &room
 }
 
 func (manager *Manager) generateCode(builder *strings.Builder) {
@@ -90,59 +101,4 @@ func (manager *Manager) generateCode(builder *strings.Builder) {
 		letter := rune(rand.IntN(24) + 65)
 		builder.WriteRune(letter)
 	}
-}
-
-func (manager *Manager) GetRoom(roomCode string) *room {
-	return manager.refs.roomByCode[roomCode]
-}
-
-func (manager *Manager) StartRoom(roomCode string, restartIfOngoing bool) error {
-	room := manager.refs.roomByCode[roomCode]
-
-	if restartIfOngoing && room.state == Ongoing {
-		manager.StopRoom(roomCode)
-	}
-
-	if room.state == Open {
-		go manager.refs.roomByCode[roomCode].partyFlow.Start()
-		room.state = Ongoing
-
-		log.Printf("--> %v started", colors.RPC(roomCode))
-		return nil
-	}
-
-	return errors.New("Room currently has an ongoing game.")
-}
-
-func (manager *Manager) StopRoom(roomCode string) {
-	room, _ := manager.refs.roomByCode[roomCode]
-	room.partyFlow.Stop()
-	room.state = Open
-}
-
-func (manager *Manager) RoomExists(roomCode string) bool {
-	_, ok := manager.refs.roomByCode[roomCode]
-	return ok
-}
-
-func (manager *Manager) RoomCodeByOwner(owner string) (string, bool) {
-	roomCode, ok := manager.refs.codeByOwner[owner]
-	return roomCode, ok
-}
-
-func (manager *Manager) CanJoin(user string, roomCode string, spectatorMode bool) bool {
-	room := manager.refs.roomByCode[roomCode]
-	if !manager.ownsRoom(user, roomCode) {
-		if (room.config.rejectJoins) ||
-			(room.state == Ongoing && !spectatorMode) ||
-			(!room.config.allowSpectators && spectatorMode) {
-			return false
-		}
-	}
-
-	return true
-}
-
-func (manager *Manager) GetRoomMu(roomCode string) *sync.RWMutex {
-	return &manager.refs.roomByCode[roomCode].mu
 }
