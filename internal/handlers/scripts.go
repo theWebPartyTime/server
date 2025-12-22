@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"bytes"
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"server/internal/models"
 	"server/internal/service"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,6 +25,7 @@ func NewScriptsHandler(scriptService *service.ScriptsService) *ScriptsHandler {
 func (h *ScriptsHandler) UserScripts(c *gin.Context) {
 	limit, err := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	if err != nil {
+		log.Println(err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "invalid limit parameter",
 		})
@@ -29,6 +33,7 @@ func (h *ScriptsHandler) UserScripts(c *gin.Context) {
 	}
 	offset, err := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	if err != nil {
+		log.Println(err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "invalid offset parameter",
 		})
@@ -56,6 +61,7 @@ func (h *ScriptsHandler) UserScripts(c *gin.Context) {
 func (h *ScriptsHandler) PublicScripts(c *gin.Context) {
 	limit, err := strconv.Atoi(c.DefaultQuery("limit", "20"))
 	if err != nil {
+		log.Println(err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "invalid limit parameter",
 		})
@@ -63,6 +69,7 @@ func (h *ScriptsHandler) PublicScripts(c *gin.Context) {
 	}
 	offset, err := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	if err != nil {
+		log.Println(err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "invalid offset parameter",
 		})
@@ -88,7 +95,15 @@ func (h *ScriptsHandler) UploadScript(c *gin.Context) {
 	var scriptRequest models.CreateScript
 	scriptFile, err := c.FormFile("script")
 	if err != nil {
+		log.Println(err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{"error": "script file is required"})
+		return
+	}
+
+	if !hasExtension(scriptFile.Filename, ".toml") {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "script file must be .toml",
+		})
 		return
 	}
 
@@ -101,7 +116,13 @@ func (h *ScriptsHandler) UploadScript(c *gin.Context) {
 	scriptRequest.ScriptFile = f
 	coverFile, err := c.FormFile("cover")
 	var coverReader io.Reader
-	if coverFile != nil && err != nil {
+	if coverFile != nil && err == nil {
+		if !hasExtension(coverFile.Filename, ".jpg") {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "cover file must be .jpg",
+			})
+			return
+		}
 		cf, err := coverFile.Open()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -161,7 +182,9 @@ func (h *ScriptsHandler) UpdateScript(c *gin.Context) {
 	}
 
 	script, err := h.scriptsService.GetScriptByHash(c.Request.Context(), scriptHash)
+
 	if err != nil {
+		log.Println(err.Error())
 		c.JSON(http.StatusNotFound, gin.H{"error": "script not found"})
 		return
 	}
@@ -180,25 +203,49 @@ func (h *ScriptsHandler) UpdateScript(c *gin.Context) {
 	scriptFileHeader, err := c.FormFile("script")
 	var scriptReader io.Reader
 	if err == nil && scriptFileHeader != nil {
+		if !hasExtension(scriptFileHeader.Filename, ".toml") {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "script file must be .toml",
+			})
+			return
+		}
 		f, err := scriptFileHeader.Open()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		defer f.Close()
-		scriptReader = f
+		buf := new(bytes.Buffer)
+		if _, err := io.Copy(buf, f); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		scriptReader = bytes.NewReader(buf.Bytes())
 	}
 
 	coverFileHeader, err := c.FormFile("cover")
 	var coverReader io.Reader
 	if err == nil && coverFileHeader != nil {
+		if !hasExtension(coverFileHeader.Filename, ".jpg") {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "cover file must be .jpg",
+			})
+			return
+		}
+
 		cf, err := coverFileHeader.Open()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		defer cf.Close()
-		coverReader = cf
+		buf := new(bytes.Buffer)
+		if _, err := io.Copy(buf, cf); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		coverReader = bytes.NewReader(buf.Bytes())
 	}
 
 	title := c.PostForm("title")
@@ -243,4 +290,14 @@ func getUserFromContext(c *gin.Context) (*models.User, bool) {
 
 	user, ok := u.(*models.User)
 	return user, ok
+}
+
+func hasExtension(filename string, allowed ...string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	for _, a := range allowed {
+		if ext == a {
+			return true
+		}
+	}
+	return false
 }

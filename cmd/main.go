@@ -61,16 +61,6 @@ func main() {
 				client.Send(data)
 			}
 
-			turquoise := color.RGB(3, 252, 202).SprintFunc()
-			log.Printf("| User %v joined channel %v", turquoise(client.ID()), turquoise(e.Channel))
-			presenceStatsResult, _ := node.PresenceStats(e.Channel)
-			if presenceStatsResult.NumClients == 0 {
-				presenters[e.Channel] = client.ID()
-				gameData[e.Channel] = rand.IntN(10) + 1
-				data, _ := json.Marshal(fmt.Sprintf("Случайное число: %v", gameData[e.Channel]))
-				client.Send(data)
-			}
-
 			cb(centrifuge.SubscribeReply{
 				Options: centrifuge.SubscribeOptions{
 					EmitPresence: true,
@@ -165,16 +155,26 @@ func main() {
 	deps := NewDependencies(db, config)
 	authHandler := deps.NewAuthHandler()
 	scriptsHandler := deps.NewScriptsHandler()
+	imageHandler := deps.NewImageHandler()
 	authMiddleware := deps.NewAuthMiddleware()
 
-	router.Use(authMiddleware.GinAuthMiddleware()).GET("/scripts/user", scriptsHandler.UserScripts)
-	router.Use(authMiddleware.GinAuthMiddleware()).GET("/scripts/public", scriptsHandler.PublicScripts)
-	router.Use(authMiddleware.GinAuthMiddleware()).POST("/scripts", scriptsHandler.UploadScript)
-	router.Use(authMiddleware.GinAuthMiddleware()).PUT("/scripts/:script_hash", scriptsHandler.UpdateScript)
+	scriptsRouter := router.Group("/scripts")
+	scriptsRouter.Use(authMiddleware.GinAuthMiddleware())
 
-	router.POST("/auth/login", authHandler.Login)
-	router.POST("/auth/register", authHandler.Register)
-	router.POST("/auth/refresh", authHandler.RefreshToken)
+	scriptsRouter.GET("/user", scriptsHandler.UserScripts)
+	scriptsRouter.GET("/public", scriptsHandler.PublicScripts)
+	scriptsRouter.POST("/", scriptsHandler.UploadScript)
+	scriptsRouter.PUT("/:script_hash", scriptsHandler.UpdateScript)
+
+	authRouter := router.Group("/auth")
+	authRouter.POST("/login", authHandler.Login)
+	authRouter.POST("/register", authHandler.Register)
+	authRouter.POST("/refresh", authHandler.RefreshToken)
+
+	imageRouter := router.Group("/images")
+	imageRouter.Use(authMiddleware.GinAuthMiddleware())
+
+	imageRouter.GET("/:hash", imageHandler.GetMediaByHash)
 
 	router.GET("/w", gin.WrapH(auth(wsHandler)))
 	router.Run("0.0.0.0:8080")
@@ -201,10 +201,16 @@ func (d *Dependencies) NewAuthHandler() *handlers.AuthHandler {
 
 func (d *Dependencies) NewScriptsHandler() *handlers.ScriptsHandler {
 	scriptsRepo := postgres.NewPostgresScriptsRepository(d.db)
-	scriptsStorage := localStorage.NewLocalFilesStorage("/uploads/scripts/", ".toml")
-	imagesStorage := localStorage.NewLocalFilesStorage("/uploads/images/", ".jpg")
+	scriptsStorage := localStorage.NewLocalFilesStorage("/app/uploads/scripts/", ".toml")
+	imagesStorage := localStorage.NewLocalFilesStorage("/app/uploads/images/", ".jpg")
 	scriptsService := service.NewScriptsService(scriptsRepo, scriptsStorage, imagesStorage)
 	return handlers.NewScriptsHandler(scriptsService)
+}
+
+func (d *Dependencies) NewImageHandler() *handlers.AssetsHandler {
+	contentType := "image/jpg"
+	imageStorage := localStorage.NewLocalFilesStorage("/app/uploads/images/", ".jpg")
+	return handlers.NewAssetsHandler(imageStorage, contentType)
 }
 
 func (d *Dependencies) NewAuthMiddleware() *GinAuthMiddleware.JWTMiddleware {
