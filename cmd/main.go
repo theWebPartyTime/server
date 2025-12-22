@@ -3,19 +3,20 @@ package main
 import (
 	"context"
 	"log"
-	"server/internal/config"
-	"server/internal/handlers"
-	"server/internal/repository"
-	"server/internal/repository/postgres"
-	"server/internal/service"
+
+	"github.com/theWebPartyTime/server/internal/config"
+	"github.com/theWebPartyTime/server/internal/handlers"
+	"github.com/theWebPartyTime/server/internal/repository"
+	"github.com/theWebPartyTime/server/internal/repository/postgres"
+	"github.com/theWebPartyTime/server/internal/service"
 
 	"github.com/centrifugal/centrifuge"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	GinAuthMiddleware "server/internal/auth"
-	migrations "server/internal/db"
-	localStorage "server/internal/storage/local"
+	GinAuthMiddleware "github.com/theWebPartyTime/server/internal/auth"
+	migrations "github.com/theWebPartyTime/server/internal/db"
+	localStorage "github.com/theWebPartyTime/server/internal/storage/local"
 )
 
 func main() {
@@ -52,6 +53,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize database:", err)
 	}
+
 	db := repository.GetDB()
 
 	if err := migrations.RunMigrations(db); err != nil {

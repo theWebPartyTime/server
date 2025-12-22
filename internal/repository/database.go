@@ -3,7 +3,8 @@ package repository
 import (
 	"context"
 	"fmt"
-	"server/internal/config"
+
+	"github.com/theWebPartyTime/server/internal/config"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"

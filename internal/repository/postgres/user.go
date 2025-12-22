@@ -3,8 +3,9 @@ package postgres
 import (
 	"context"
 	"errors"
-	"server/internal/models"
-	"server/internal/repository"
+
+	"github.com/theWebPartyTime/server/internal/models"
+	"github.com/theWebPartyTime/server/internal/repository"
 
 	"gorm.io/gorm"
 )

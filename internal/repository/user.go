@@ -2,7 +2,8 @@ package repository
 
 import (
 	"context"
-	"server/internal/models"
+
+	"github.com/theWebPartyTime/server/internal/models"
 )
 
 type UserRepository interface {

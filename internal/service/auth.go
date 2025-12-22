@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/mail"
-	"server/internal/models"
-	"server/internal/repository"
 	"time"
+
+	"github.com/theWebPartyTime/server/internal/models"
+	"github.com/theWebPartyTime/server/internal/repository"
 
 	"golang.org/x/crypto/bcrypt"
 )

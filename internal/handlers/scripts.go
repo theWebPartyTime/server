@@ -4,9 +4,10 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"server/internal/models"
-	"server/internal/service"
 	"strconv"
+
+	"github.com/theWebPartyTime/server/internal/models"
+	"github.com/theWebPartyTime/server/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

@@ -6,10 +6,11 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"io"
-	"server/internal/models"
-	"server/internal/repository"
-	"server/internal/storage"
 	"time"
+
+	"github.com/theWebPartyTime/server/internal/models"
+	"github.com/theWebPartyTime/server/internal/repository"
+	"github.com/theWebPartyTime/server/internal/storage"
 )
 
 type ScriptsService struct {

@@ -1,10 +1,7 @@
 package config
 
 import (
-	"log"
 	"os"
-
-	"github.com/joho/godotenv"
 )
 
 type DBConfig struct {
@@ -21,17 +18,22 @@ type Config struct {
 }
 
 func LoadConfig() Config {
-	err := godotenv.Load("../.env")
-	if err != nil {
-		log.Fatal("Error loading .env file ", err)
+	devModeEnabled := os.Getenv("DEV")
+	var dbName string
+
+	if devModeEnabled != "" {
+		dbName = os.Getenv("DEV_POSTGRES_DB")
+	} else {
+		dbName = os.Getenv("PROD_POSTGRES_DB")
 	}
+
 	return Config{
 		DB: DBConfig{
 			Host:     os.Getenv("POSTGRES_HOST"),
 			Port:     os.Getenv("POSTGRES_PORT"),
 			User:     os.Getenv("POSTGRES_USER"),
 			Password: os.Getenv("POSTGRES_PASSWORD"),
-			Name:     os.Getenv("POSTGRES_DB"),
+			Name:     dbName,
 		},
 		JWTSecret: os.Getenv("JWT_SECRET"),
 	}

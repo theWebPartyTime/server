@@ -6,7 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"server/internal/storage"
+
+	"github.com/theWebPartyTime/server/internal/storage"
 )
 
 type LocalFilesStorage struct {

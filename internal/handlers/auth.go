@@ -2,9 +2,10 @@ package handlers
 
 import (
 	"net/http"
-	"server/internal/models"
-	"server/internal/service"
 	"time"
+
+	"github.com/theWebPartyTime/server/internal/models"
+	"github.com/theWebPartyTime/server/internal/service"
 
 	"github.com/gin-gonic/gin"
 	go_jwt "github.com/golang-jwt/jwt/v5"

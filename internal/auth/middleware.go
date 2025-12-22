@@ -2,9 +2,10 @@ package auth
 
 import (
 	"net/http"
-	"server/internal/models"
 	"strconv"
 	"strings"
+
+	"github.com/theWebPartyTime/server/internal/models"
 
 	"github.com/centrifugal/centrifuge"
 	"github.com/gin-gonic/gin"
