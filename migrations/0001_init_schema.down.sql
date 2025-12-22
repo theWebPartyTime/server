@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS scenarios;
+DROP TABLE IF EXISTS assets;
+DROP TYPE IF EXISTS party_status;
+DROP TYPE IF EXISTS asset_type
