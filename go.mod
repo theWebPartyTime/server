@@ -13,6 +13,7 @@ require (
 
 require (
 	github.com/docker/go-connections v0.6.0 // indirect
+	github.com/gin-contrib/cors v1.7.6 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/quagmt/udecimal v1.9.0 // indirect
