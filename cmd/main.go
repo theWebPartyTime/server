@@ -5,6 +5,10 @@ import (
 	"log"
 	"os"
 
+	GinAuthMiddleware "github.com/theWebPartyTime/server/internal/auth"
+	migrations "github.com/theWebPartyTime/server/internal/db"
+	localStorage "github.com/theWebPartyTime/server/internal/storage/local"
+
 	"github.com/theWebPartyTime/server/internal/config"
 	"github.com/theWebPartyTime/server/internal/handlers"
 	"github.com/theWebPartyTime/server/internal/repository"
@@ -14,10 +18,6 @@ import (
 	"github.com/centrifugal/centrifuge"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-
-	GinAuthMiddleware "github.com/theWebPartyTime/server/internal/auth"
-	migrations "github.com/theWebPartyTime/server/internal/db"
-	localStorage "github.com/theWebPartyTime/server/internal/storage/local"
 )
 
 func main() {
@@ -66,21 +66,30 @@ func main() {
 	deps := NewDependencies(db, config)
 	authHandler := deps.NewAuthHandler()
 	scriptsHandler := deps.NewScriptsHandler()
+	imageHandler := deps.NewImageHandler()
 	authMiddleware := deps.NewAuthMiddleware()
+
+	scriptsRouter := router.Group("/scripts")
+	scriptsRouter.Use(authMiddleware.GinAuthMiddleware())
+
+	scriptsRouter.GET("/user", scriptsHandler.UserScripts)
+	scriptsRouter.GET("/public", scriptsHandler.PublicScripts)
+	scriptsRouter.POST("/", scriptsHandler.UploadScript)
+	scriptsRouter.PUT("/:script_hash", scriptsHandler.UpdateScript)
+
+	authRouter := router.Group("/auth")
+	authRouter.POST("/login", authHandler.Login)
+	authRouter.POST("/register", authHandler.Register)
+	authRouter.POST("/refresh", authHandler.RefreshToken)
+
+	imageRouter := router.Group("/images")
+	imageRouter.Use(authMiddleware.GinAuthMiddleware())
+
+	imageRouter.GET("/:hash", imageHandler.GetMediaByHash)
 
 	router.GET("/", root)
 	router.GET(socketPath,
 		gin.WrapH(GinAuthMiddleware.CentrifugeAuthMiddleware(wsHandler)))
-
-	group := router.Group("/scripts/", authMiddleware.GinAuthMiddleware())
-	group.GET("/user", scriptsHandler.UserScripts)
-	group.GET("/public", scriptsHandler.PublicScripts)
-	group.POST("/", scriptsHandler.UploadScript)
-	group.PUT("/:script_hash", scriptsHandler.UpdateScript)
-
-	router.POST("/auth/login", authHandler.Login)
-	router.POST("/auth/register", authHandler.Register)
-	router.POST("/auth/refresh", authHandler.RefreshToken)
 
 	router.Run("0.0.0.0:8080")
 }
@@ -106,10 +115,16 @@ func (d *Dependencies) NewAuthHandler() *handlers.AuthHandler {
 
 func (d *Dependencies) NewScriptsHandler() *handlers.ScriptsHandler {
 	scriptsRepo := postgres.NewPostgresScriptsRepository(d.db)
-	scriptsStorage := localStorage.NewLocalFilesStorage("/uploads/scripts/", ".webparty")
-	imagesStorage := localStorage.NewLocalFilesStorage("/uploads/images/", ".jpg")
+	scriptsStorage := localStorage.NewLocalFilesStorage("/app/uploads/scripts/", ".toml")
+	imagesStorage := localStorage.NewLocalFilesStorage("/app/uploads/images/", ".jpg")
 	scriptsService := service.NewScriptsService(scriptsRepo, scriptsStorage, imagesStorage)
 	return handlers.NewScriptsHandler(scriptsService)
+}
+
+func (d *Dependencies) NewImageHandler() *handlers.AssetsHandler {
+	contentType := "image/jpg"
+	imageStorage := localStorage.NewLocalFilesStorage("/app/uploads/images/", ".jpg")
+	return handlers.NewAssetsHandler(imageStorage, contentType)
 }
 
 func (d *Dependencies) NewAuthMiddleware() *GinAuthMiddleware.JWTMiddleware {

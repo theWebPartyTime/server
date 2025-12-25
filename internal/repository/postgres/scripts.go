@@ -2,10 +2,10 @@ package postgres
 
 import (
 	"context"
+	"log"
 
 	"github.com/theWebPartyTime/server/internal/models"
 	"github.com/theWebPartyTime/server/internal/repository"
-
 	"gorm.io/gorm"
 )
 
@@ -52,6 +52,7 @@ func (r *postgresScriptsRepo) GetUserScripts(ctx context.Context, userId int, li
 }
 
 func (r *postgresScriptsRepo) GetScriptByHash(ctx context.Context, scriptHash string) (*models.Script, error) {
+	log.Println("old script hash in repo: ", scriptHash)
 	var script models.Script
 	err := r.db.WithContext(ctx).Where("script_hash = ?", scriptHash).First(&script).Error
 	if err != nil {
@@ -61,11 +62,11 @@ func (r *postgresScriptsRepo) GetScriptByHash(ctx context.Context, scriptHash st
 }
 
 func (r *postgresScriptsRepo) CreateScript(ctx context.Context, script models.Script) error {
-	return r.db.WithContext(ctx).Create(script).Error
+	return r.db.WithContext(ctx).Create(&script).Error
 }
 
 func (r *postgresScriptsRepo) UpdateScript(ctx context.Context, script models.Script) error {
-	return r.db.WithContext(ctx).Save(script).Error
+	return r.db.WithContext(ctx).Save(&script).Error
 }
 
 func (r *postgresScriptsRepo) DeleteScript(ctx context.Context, scriptHash string) error {

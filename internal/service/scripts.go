@@ -8,9 +8,13 @@ import (
 	"io"
 	"time"
 
+	"log"
+
 	"github.com/theWebPartyTime/server/internal/models"
 	"github.com/theWebPartyTime/server/internal/repository"
 	"github.com/theWebPartyTime/server/internal/storage"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 type ScriptsService struct {
@@ -25,6 +29,11 @@ func NewScriptsService(scriptsRepo repository.ScriptsRepository, scriptsStorage 
 
 func (s *ScriptsService) UploadScript(ctx context.Context, scriptRequest models.CreateScript) error {
 	scriptData, err := io.ReadAll(scriptRequest.ScriptFile)
+	if err != nil {
+		return err
+	}
+
+	err = ValidateToml(scriptData)
 	if err != nil {
 		return err
 	}
@@ -75,28 +84,39 @@ func (s *ScriptsService) UploadScript(ctx context.Context, scriptRequest models.
 
 func (s *ScriptsService) UpdateScript(ctx context.Context, oldScriptHash string, oldCoverHash string, scriptRequest models.UpdateScript) error {
 	if scriptRequest.CoverFile != nil {
-		err := s.UpdateCover(ctx, oldCoverHash, scriptRequest.CoverFile)
+		err := s.UpdateCover(ctx, oldScriptHash, scriptRequest.CoverFile)
 		if err != nil {
 			return err
 		}
+		log.Println("Cover updated successfully")
 	}
+
 	var newScriptHash string
 	if scriptRequest.ScriptFile != nil {
-
 		scriptData, err := io.ReadAll(scriptRequest.ScriptFile)
 		if err != nil {
 			return err
 		}
 
-		newScriptHash, err := ComputeHashFromReader(bytes.NewReader(scriptData))
+		err = ValidateToml(scriptData)
 		if err != nil {
 			return err
 		}
+		newScriptHash, err = ComputeHashFromReader(bytes.NewReader(scriptData))
+		if err != nil {
+			return err
+		}
+		log.Println("New script hash:", newScriptHash)
 
 		if err := s.scriptsStorage.Save(ctx, newScriptHash, bytes.NewReader(scriptData)); err != nil {
 			return err
 		}
+		log.Println("New script saved successfully")
+	}
+	log.Println("old hash in service: ", oldScriptHash)
 
+	if oldScriptHash == "" {
+		log.Println("WARNING: oldScriptHash is empty!")
 	}
 
 	script, err := s.scriptsRepo.GetScriptByHash(ctx, oldScriptHash)
@@ -125,12 +145,14 @@ func (s *ScriptsService) UpdateScript(ctx context.Context, oldScriptHash string,
 		}
 		return err
 	}
+	log.Println("Script updated successfully in DB")
 
 	if newScriptHash != "" && oldScriptHash != "" {
 		_ = s.scriptsStorage.Delete(ctx, oldScriptHash)
+		log.Println("Old script deleted")
 	}
-	return nil
 
+	return nil
 }
 
 func (s *ScriptsService) DeleteScript(ctx context.Context, scriptHash string) error {
@@ -230,6 +252,35 @@ func (s *ScriptsService) GetPublicScripts(ctx context.Context, limit int, offset
 
 }
 
+func (s *ScriptsService) DeleteCover(ctx context.Context, scriptHash string) error {
+	script, err := s.scriptsRepo.GetScriptByHash(ctx, scriptHash)
+	if err != nil {
+		return err
+	}
+
+	if script.CoverHash == "" {
+		log.Println("No cover to delete for script:", scriptHash)
+		return nil
+	}
+
+	coverHash := script.CoverHash
+
+	if err := s.imagesStorage.Delete(ctx, coverHash); err != nil {
+		return err
+	}
+	log.Println("Cover file deleted from storage:", coverHash)
+
+	script.CoverHash = ""
+	script.UpdatedAt = time.Now()
+
+	if err := s.scriptsRepo.UpdateScript(ctx, *script); err != nil {
+		return err
+	}
+	log.Println("Cover hash cleared in DB for script:", scriptHash)
+
+	return nil
+}
+
 func (s *ScriptsService) GetScriptByHash(ctx context.Context, hash string) (*models.Script, error) {
 	return s.scriptsRepo.GetScriptByHash(ctx, hash)
 }
@@ -240,4 +291,12 @@ func ComputeHashFromReader(r io.Reader) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func ValidateToml(data []byte) error {
+	var v map[string]interface{}
+	if err := toml.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	return nil
 }
