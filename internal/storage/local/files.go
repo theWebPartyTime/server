@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -51,6 +52,7 @@ func (s *LocalFilesStorage) Save(ctx context.Context, hash string, r io.Reader) 
 		}
 		return err
 	}
+	log.Print("file %s created", finalPath)
 
 	return nil
 }

@@ -6,9 +6,8 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"io"
-	"time"
-
 	"log"
+	"time"
 
 	"github.com/theWebPartyTime/server/internal/models"
 	"github.com/theWebPartyTime/server/internal/repository"
@@ -46,6 +45,7 @@ func (s *ScriptsService) UploadScript(ctx context.Context, scriptRequest models.
 	if err := s.scriptsStorage.Save(ctx, scriptHash, bytes.NewReader(scriptData)); err != nil {
 		return err
 	}
+	log.Println("created")
 	var coverHash string
 	var coverData []byte
 

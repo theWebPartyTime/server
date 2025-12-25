@@ -54,7 +54,7 @@ func (s *AuthService) Register(ctx context.Context, req models.RegisterRequest) 
 	}
 	err = s.userRepo.CreateUser(ctx, user)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("email already in use")
 	}
 	return user, nil
 }

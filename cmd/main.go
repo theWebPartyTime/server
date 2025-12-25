@@ -15,7 +15,10 @@ import (
 	"github.com/theWebPartyTime/server/internal/repository/postgres"
 	"github.com/theWebPartyTime/server/internal/service"
 
+	"time"
+
 	"github.com/centrifugal/centrifuge"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -46,8 +49,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	wsHandler := centrifuge.NewWebsocketHandler(node, wsMainConfig())
-
 	ctx := context.Background()
 	config := config.LoadConfig()
 
@@ -63,33 +64,33 @@ func main() {
 	}
 	defer repository.CloseDB()
 
-	deps := NewDependencies(db, config)
-	authHandler := deps.NewAuthHandler()
-	scriptsHandler := deps.NewScriptsHandler()
-	imageHandler := deps.NewImageHandler()
-	authMiddleware := deps.NewAuthMiddleware()
-
-	scriptsRouter := router.Group("/scripts")
-	scriptsRouter.Use(authMiddleware.GinAuthMiddleware())
-
-	scriptsRouter.GET("/user", scriptsHandler.UserScripts)
-	scriptsRouter.GET("/public", scriptsHandler.PublicScripts)
-	scriptsRouter.POST("/", scriptsHandler.UploadScript)
-	scriptsRouter.PUT("/:script_hash", scriptsHandler.UpdateScript)
-
-	authRouter := router.Group("/auth")
-	authRouter.POST("/login", authHandler.Login)
-	authRouter.POST("/register", authHandler.Register)
-	authRouter.POST("/refresh", authHandler.RefreshToken)
-
-	imageRouter := router.Group("/images")
-	imageRouter.Use(authMiddleware.GinAuthMiddleware())
-
-	imageRouter.GET("/:hash", imageHandler.GetMediaByHash)
-
+	wsHandler := centrifuge.NewWebsocketHandler(node, wsMainConfig())
 	router.GET("/", root)
 	router.GET(socketPath,
 		gin.WrapH(GinAuthMiddleware.CentrifugeAuthMiddleware(wsHandler)))
+
+	deps := NewDependencies(db, config)
+	authHandler := deps.NewAuthHandler()
+	scriptsHandler := deps.NewScriptsHandler()
+	authMiddleware := deps.NewAuthMiddleware()
+
+	router.Use(corsMiddleware())
+	router.OPTIONS("/*path", func(c *gin.Context) {
+		c.AbortWithStatus(204)
+	})
+
+	authGroup := router.Group("/auth")
+
+	authGroup.POST("/login", authHandler.Login)
+	authGroup.POST("/register", authHandler.Register)
+	authGroup.POST("/refresh", authHandler.RefreshToken)
+
+	scriptsGroup := router.Group("/scripts", authMiddleware.GinAuthMiddleware())
+
+	scriptsGroup.GET("/user", scriptsHandler.UserScripts)
+	scriptsGroup.GET("/public", scriptsHandler.PublicScripts)
+	scriptsGroup.POST("/", scriptsHandler.UploadScript)
+	scriptsGroup.PUT("/:script_hash", scriptsHandler.UpdateScript)
 
 	router.Run("0.0.0.0:8080")
 }
@@ -129,4 +130,28 @@ func (d *Dependencies) NewImageHandler() *handlers.AssetsHandler {
 
 func (d *Dependencies) NewAuthMiddleware() *GinAuthMiddleware.JWTMiddleware {
 	return GinAuthMiddleware.NewJWTMiddleware([]byte(d.config.JWTSecret))
+}
+
+func corsMiddleware() gin.HandlerFunc {
+	return cors.New(cors.Config{
+		AllowOrigins: []string{
+			"http://localhost:5174",
+			"http://127.0.0.1:5174",
+			"http://webparty.fun",
+			"https://webparty.fun",
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+		},
+		AllowMethods: []string{
+			"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS",
+		},
+		AllowHeaders: []string{
+			"Origin",
+			"Content-Type",
+			"Authorization",
+		},
+		AllowCredentials: true,
+
+		MaxAge: 12 * time.Hour,
+	})
 }

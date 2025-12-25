@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 
 	"github.com/theWebPartyTime/server/internal/models"
 	"github.com/theWebPartyTime/server/internal/repository"
@@ -25,9 +24,6 @@ func (r *postgresUserRepo) CreateUser(ctx context.Context, user *models.User) er
 func (r *postgresUserRepo) GetUserByID(ctx context.Context, id int) (*models.User, error) {
 	var u models.User
 	if err := r.db.WithContext(ctx).First(&u, id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	return &u, nil
@@ -37,9 +33,7 @@ func (r *postgresUserRepo) GetUserByEmail(ctx context.Context, email string) (*m
 	var u models.User
 	err := r.db.WithContext(ctx).Where("email = ?", email).First(&u).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
+
 		return nil, err
 	}
 	return &u, nil

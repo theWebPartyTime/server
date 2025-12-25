@@ -25,7 +25,7 @@ CREATE TABLE "scenarios" (
   "title" varchar NOT NULL,
   "description" varchar NOT NULL,
   "script_hash" varchar UNIQUE NOT NULL,
-  "cover" varchar,
+  "cover_hash" varchar,
   "created_at" timestamp DEFAULT 'now()',
   "updated_at" timestamp DEFAULT 'now()'
 );

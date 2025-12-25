@@ -18,14 +18,6 @@ type Config struct {
 }
 
 func LoadConfig() Config {
-	devModeEnabled := os.Getenv("DEV")
-	var dbName string
-
-	if devModeEnabled != "" {
-		dbName = os.Getenv("DEV_POSTGRES_DB")
-	} else {
-		dbName = os.Getenv("PROD_POSTGRES_DB")
-	}
 
 	return Config{
 		DB: DBConfig{
@@ -33,7 +25,7 @@ func LoadConfig() Config {
 			Port:     os.Getenv("POSTGRES_PORT"),
 			User:     os.Getenv("POSTGRES_USER"),
 			Password: os.Getenv("POSTGRES_PASSWORD"),
-			Name:     dbName,
+			Name:     os.Getenv("POSTGRES_DB"),
 		},
 		JWTSecret: os.Getenv("JWT_SECRET"),
 	}
