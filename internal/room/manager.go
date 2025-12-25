@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/theWebPartyTime/server/internal/colors"
 )
@@ -52,7 +53,9 @@ func (manager *Manager) Close(roomCode string) {
 
 	if ok {
 		room.Stop()
-		delete(manager.refs.byOwner, room.owner)
+		if manager.refs.byOwner[room.owner] == room {
+			delete(manager.refs.byOwner, room.owner)
+		}
 		delete(manager.refs.byCode, room.code)
 	}
 }
@@ -87,8 +90,10 @@ func (manager *Manager) makeRoom(config Config, roomCode string, owner string) *
 		channels:       map[string]chan any{"input-ready": make(chan any)},
 		inputs:         make(map[string]Input),
 		nicknameExists: make(map[string]any),
+		onStart:        func() {},
 		owner:          owner,
 		code:           roomCode,
+		createdAt:      time.Now(),
 	}
 
 	manager.refs.byCode[roomCode] = &room

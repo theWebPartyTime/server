@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/theWebPartyTime/server/internal/config"
 	"github.com/theWebPartyTime/server/internal/handlers"
@@ -20,6 +21,9 @@ import (
 )
 
 func main() {
+	dir, _ := os.Getwd()
+	log.Printf(dir)
+
 	router := gin.Default()
 	router.SetTrustedProxies(nil)
 
@@ -34,7 +38,8 @@ func main() {
 		client.OnRPC(onRPC(node, client))
 		client.OnSubscribe(onSubscribe(node, client))
 		client.OnUnsubscribe(onUnsubscribe(node, client))
-		client.OnMessage(onMessage(client))
+		client.OnDisconnect(onDisconnect(client))
+		client.OnMessage(onMessage(node, client))
 	})
 
 	if err := node.Run(); err != nil {
@@ -42,9 +47,6 @@ func main() {
 	}
 
 	wsHandler := centrifuge.NewWebsocketHandler(node, wsMainConfig())
-
-	router.GET("/", root)
-	router.GET(socketPath, gin.WrapH(auth(wsHandler)))
 
 	ctx := context.Background()
 	config := config.LoadConfig()
@@ -66,10 +68,15 @@ func main() {
 	scriptsHandler := deps.NewScriptsHandler()
 	authMiddleware := deps.NewAuthMiddleware()
 
-	router.Use(authMiddleware.GinAuthMiddleware()).GET("/scripts/user", scriptsHandler.UserScripts)
-	router.Use(authMiddleware.GinAuthMiddleware()).GET("/scripts/public", scriptsHandler.PublicScripts)
-	router.Use(authMiddleware.GinAuthMiddleware()).POST("/scripts", scriptsHandler.UploadScript)
-	router.Use(authMiddleware.GinAuthMiddleware()).PUT("/scripts/:script_hash", scriptsHandler.UpdateScript)
+	router.GET("/", root)
+	router.GET(socketPath,
+		gin.WrapH(GinAuthMiddleware.CentrifugeAuthMiddleware(wsHandler)))
+
+	group := router.Group("/scripts/", authMiddleware.GinAuthMiddleware())
+	group.GET("/user", scriptsHandler.UserScripts)
+	group.GET("/public", scriptsHandler.PublicScripts)
+	group.POST("/", scriptsHandler.UploadScript)
+	group.PUT("/:script_hash", scriptsHandler.UpdateScript)
 
 	router.POST("/auth/login", authHandler.Login)
 	router.POST("/auth/register", authHandler.Register)
@@ -99,7 +106,7 @@ func (d *Dependencies) NewAuthHandler() *handlers.AuthHandler {
 
 func (d *Dependencies) NewScriptsHandler() *handlers.ScriptsHandler {
 	scriptsRepo := postgres.NewPostgresScriptsRepository(d.db)
-	scriptsStorage := localStorage.NewLocalFilesStorage("/uploads/scripts/", ".toml")
+	scriptsStorage := localStorage.NewLocalFilesStorage("/uploads/scripts/", ".webparty")
 	imagesStorage := localStorage.NewLocalFilesStorage("/uploads/images/", ".jpg")
 	scriptsService := service.NewScriptsService(scriptsRepo, scriptsStorage, imagesStorage)
 	return handlers.NewScriptsHandler(scriptsService)

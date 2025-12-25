@@ -4,21 +4,21 @@ import (
 	"errors"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/theWebPartyTime/server/internal/colors"
 	"github.com/theWebPartyTime/server/internal/partyflow"
 )
 
 type Config struct {
-	allowSpectators bool
-	rejectJoins     bool
-	allowAnonymous  bool
-	autoStart       bool
+	AllowSpectators bool
+	RejectJoins     bool
+	AllowAnonymous  bool
+	AutoStart       bool
 }
 
 type Input struct {
 	Type    string         `json:"type"`
-	UserID  string         `json:"userID"`
 	Content map[string]any `json:"content"`
 }
 
@@ -46,8 +46,9 @@ type room struct {
 	inputs         map[string]Input
 	nicknames      map[string]string
 	nicknameExists map[string]any
-
-	partyFlow *partyflow.PartyFlow
+	createdAt      time.Time
+	partyFlow      *partyflow.PartyFlow
+	onStart        func()
 }
 
 func (room *room) CanJoin(user string, spectatorMode bool) bool {
@@ -55,9 +56,9 @@ func (room *room) CanJoin(user string, spectatorMode bool) bool {
 		return true
 	}
 
-	return !((room.config.rejectJoins) ||
-		(room.config.allowSpectators && room.state == Ongoing && !spectatorMode) ||
-		(!room.config.allowSpectators && spectatorMode))
+	return !((room.config.RejectJoins) ||
+		(room.config.AllowSpectators && room.state == Ongoing && !spectatorMode) ||
+		(!room.config.AllowSpectators && spectatorMode))
 }
 
 func (room *room) Joined(user string, nickname string) string {
@@ -72,17 +73,28 @@ func (room *room) Joined(user string, nickname string) string {
 	return nickname
 }
 
+func (room *room) SetConfig(newConfig Config) {
+	room.config = newConfig
+}
+
+func (room *room) SetOnStart(onStart func()) {
+	room.onStart = onStart
+}
+
 func (room *room) Left(user string) {
 	nickname, _ := room.nicknames[user]
 	delete(room.nicknameExists, nickname)
 	delete(room.nicknames, user)
 	room.removeInput(user)
-	room.checkInputsReady()
 	log.Printf("[%v] left %v", colors.Left(user), colors.Left(room.GetCode()))
 }
 
 func (room *room) GetNicknames() map[string]string {
 	return room.nicknames
+}
+
+func (room *room) GetCreatedAt() time.Time {
+	return room.createdAt
 }
 
 func (room *room) AttachPartyFlow(partyFlow *partyflow.PartyFlow) {
@@ -110,6 +122,8 @@ func (room *room) AddInput(user string, input Input) {
 	_, ok := room.inputs[user]
 	if !ok {
 		room.inputs[user] = input
+	} else if room.state == Open {
+		room.removeInput(user)
 	}
 
 	room.checkInputsReady()
@@ -141,10 +155,12 @@ func (room *room) checkInputsReady() {
 	inputs := room.inputs
 	online := len(room.nicknames) - 1
 
-	if room.state == Open && room.config.autoStart && len(inputs) == online {
-		room.Start(false)
+	if room.state == Open && room.config.AutoStart && online != 0 && len(inputs) == online {
+		// room.Start(false)
+		log.Printf("\nstarting 123123\n")
+		room.onStart()
 		room.ClearInputs()
-	} else {
+	} else if room.state == Ongoing {
 		filteredByStep := 0
 
 		for _, input := range inputs {
@@ -158,7 +174,6 @@ func (room *room) checkInputsReady() {
 			channel <- struct{}{}
 		}
 	}
-
 }
 
 func (room *room) GetCode() string {

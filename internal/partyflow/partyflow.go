@@ -12,6 +12,11 @@ import (
 	"github.com/theWebPartyTime/server/internal/input"
 )
 
+type Standing struct {
+	LastInput string `json:"lastInput"`
+	WinCount  int    `json:"winCount"`
+}
+
 type PartyFlow struct {
 	logger *log.Logger
 
@@ -22,12 +27,12 @@ type PartyFlow struct {
 	conditionCheckers map[string]func(any, map[string]any) <-chan struct{}
 	conditionArgs     map[string]map[string]any
 
-	onQuery             func(*PartyQuery)
-	onMove              func()
-	onFinished          func()
-	onGetVoteCandidates func(*PartyQuery) map[string]string
-	onGetWinners        func(*PartyQuery) []string
-	winners             map[string]int
+	onQuery      func(*PartyQuery)
+	onMove       func()
+	onFinished   func()
+	onGetInputs  func(*PartyQuery) map[string]string
+	onGetWinners func(*PartyQuery) []string
+	standings    map[string]Standing
 
 	stepCounter    atomic.Int64
 	skipGetWinners bool
@@ -53,20 +58,20 @@ type PartyQuery struct {
 
 func New() *PartyFlow {
 	partyFlow := PartyFlow{
-		start:               nil,
-		conditionCheckers:   make(map[string]func(any, map[string]any) <-chan struct{}),
-		inputCheckers:       make(map[string]input.Checker),
-		conditionArgs:       make(map[string]map[string]any),
-		winners:             make(map[string]int),
-		onQuery:             func(pq *PartyQuery) {},
-		onGetWinners:        func(pq *PartyQuery) []string { return []string{} },
-		skipGetWinners:      false,
-		context:             nil,
-		stop:                nil,
-		onMove:              func() {},
-		onFinished:          func() {},
-		onGetVoteCandidates: func(*PartyQuery) map[string]string { return map[string]string{} },
-		logger:              nil,
+		start:             nil,
+		conditionCheckers: make(map[string]func(any, map[string]any) <-chan struct{}),
+		inputCheckers:     make(map[string]input.Checker),
+		conditionArgs:     make(map[string]map[string]any),
+		standings:         make(map[string]Standing),
+		onQuery:           func(pq *PartyQuery) {},
+		onGetWinners:      func(pq *PartyQuery) []string { return []string{} },
+		skipGetWinners:    false,
+		context:           nil,
+		stop:              nil,
+		onMove:            func() {},
+		onFinished:        func() {},
+		onGetInputs:       func(*PartyQuery) map[string]string { return map[string]string{} },
+		logger:            nil,
 	}
 
 	return &partyFlow
@@ -103,13 +108,16 @@ func (partyFlow *PartyFlow) Start() {
 	partyFlow.stepCounter.Store(0)
 
 	partyFlow.current = partyFlow.start
-	partyFlow.winners = make(map[string]int)
+	partyFlow.standings = make(map[string]Standing)
 
 	partyFlow.logger.Printf("Starting from <%s>", partyFlow.current.Name)
 
 	var path int
 	moveTo := make(chan int)
 	partyFlowCancelled := false
+
+	initialWait := 1
+	<-time.After(time.Duration(initialWait) * time.Second)
 
 	for {
 		partyFlow.stepCounter.Add(1)
@@ -164,17 +172,21 @@ func (partyFlow *PartyFlow) Start() {
 		} else {
 			<-time.After(200 * time.Millisecond)
 			winners := partyFlow.onGetWinners(partyFlow.current)
+			inputs := partyFlow.onGetInputs(partyFlow.current)
+
 			for _, winner := range winners {
-				_, ok := partyFlow.winners[winner]
+				_, ok := partyFlow.standings[winner]
 
 				if !ok {
-					partyFlow.winners[winner] = 0
+					partyFlow.standings[winner] = Standing{
+						WinCount: 0, LastInput: inputs[winner]}
 				}
 
-				partyFlow.winners[winner] += 1
+				partyFlow.standings[winner] = Standing{
+					WinCount: partyFlow.standings[winner].WinCount + 1, LastInput: inputs[winner]}
 			}
 
-			partyFlow.logger.Printf("Winners -> %v", partyFlow.winners)
+			partyFlow.logger.Printf("Winners -> %v", partyFlow.standings)
 		}
 
 		correct, hasCorrect := partyFlow.current.Input["correct"]
@@ -205,7 +217,7 @@ func (partyFlow *PartyFlow) Start() {
 				Name:   fmt.Sprintf("%s (voting)", partyFlow.current.Name),
 				Layout: nil,
 				Input: map[string]any{"type": "vote " + partyFlow.current.Vote["type"].(string),
-					"candidates": partyFlow.onGetVoteCandidates(partyFlow.current)},
+					"candidates": partyFlow.onGetInputs(partyFlow.current)},
 				Overviewer:   partyFlow.current.Overviewer,
 				NextVariants: []conditionalMove{{to: next, when: moveWhen}},
 			}
@@ -221,7 +233,7 @@ func (partyFlow *PartyFlow) Start() {
 			nextQuery = &PartyQuery{
 				Name: fmt.Sprintf("%s (overviewer)", partyFlow.current.Name),
 				Layout: map[string]any{"type": "overviewer " + partyFlow.current.Overviewer["type"].(string),
-					"winners": partyFlow.winners},
+					"winners": partyFlow.standings},
 				Input:        nil,
 				Overviewer:   nil,
 				NextVariants: []conditionalMove{{to: next, when: moveWhen}},
@@ -274,8 +286,8 @@ func (partyFlow *PartyFlow) OnGetWinners(cb func(*PartyQuery) []string) {
 	partyFlow.onGetWinners = cb
 }
 
-func (partyFlow *PartyFlow) OnGetVoteCandidates(getCandidates func(*PartyQuery) map[string]string) {
-	partyFlow.onGetVoteCandidates = getCandidates
+func (partyFlow *PartyFlow) OnGetInputs(getInputs func(*PartyQuery) map[string]string) {
+	partyFlow.onGetInputs = getInputs
 }
 
 func (partyFlow *PartyFlow) OnQuery(cb func(*PartyQuery)) {

@@ -15,9 +15,9 @@ type RoomChannel struct {
 	Code string
 }
 
-func PlayRoomCode(channels []string) string {
+func RoomCode(channels []string) string {
 	for i := len(channels) - 1; i >= 0; i-- {
-		if IsPlay(channels[i]) {
+		if IsPlay(channels[i]) || IsWatch(channels[i]) {
 			roomChannel := AsRoomChannel(channels[i])
 			return roomChannel.Code
 		}

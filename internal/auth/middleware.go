@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/theWebPartyTime/server/internal/models"
 
 	"github.com/centrifugal/centrifuge"
@@ -87,6 +88,16 @@ func (m *JWTMiddleware) WSAuthMiddleware(h http.Handler) http.Handler {
 		)
 
 		r = r.WithContext(ctx)
+		h.ServeHTTP(w, r)
+	})
+}
+
+func CentrifugeAuthMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		context := r.Context()
+		credentials := &centrifuge.Credentials{UserID: uuid.NewString()}
+		newContext := centrifuge.SetCredentials(context, credentials)
+		r = r.WithContext(newContext)
 		h.ServeHTTP(w, r)
 	})
 }

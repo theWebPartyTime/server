@@ -10,7 +10,7 @@ import (
 )
 
 const socketPath = "/join"
-const scriptsPath = "../scripts/"
+const scriptsPath = "./scripts/"
 
 var roomManagerOnce sync.Once
 var roomManager *room.Manager
@@ -39,7 +39,7 @@ func wsMainConfig() centrifuge.WebsocketConfig {
 
 func centrifugeMainConfig() centrifuge.Config {
 	return centrifuge.Config{
-		LogLevel: centrifuge.LogLevelError,
+		LogLevel: centrifuge.LogLevelDebug,
 		LogHandler: func(e centrifuge.LogEntry) {
 			log.Printf("%v %v", e.Message, e.Fields)
 		},

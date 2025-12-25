@@ -12,6 +12,4 @@ COPY . .
 
 ENV PORT=8080
 
-WORKDIR /app/cmd
-
-CMD ["air"]
+CMD ["air", "-c", ".air.toml"]

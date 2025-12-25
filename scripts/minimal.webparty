@@ -2,29 +2,37 @@ start = "intro"
 
 [intro]
     [intro.layout]
-    type = "basic"
-    title = "Угадай число"
-    description = "Игра скоро начнётся"
+    type = "multimedia"
+    title = "Дорогие друзья"
+    msg = "WebPartyTime это что?"
+    image = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRnTQ04WdzI8_nx_D7_gGQK5nyjsunQOHNm5g&s"
+    timer = 10
 
         [intro.to.guess1]
-        timer = 3
+        timer = 1
 
 [guess1]
     [guess1.layout]
-    type = "basic"
-    title = "Угадай число"
-    description = "Угадайте число от 1 до 5"
+    type = "list"
+    title = "Бекенд"
+    items = ["myDanik"]
+    timer = 30
 
     [guess1.input]
     title = "Введите число от 1 до 5"
     description = "Введите вашу догадку"
     type = "text"
     limits = ["1", "2", "3", "4", "5"]
-    correct = "pick"
+    correct = "vote"
+
+        [guess1.vote]
+        type = "all"
+        inputBased = true
 
         [guess1.to.end]
         inputBased = true
+        timer = 30
     
     [guess1.overviewer]
     type = "winner"
-    timer = 2
+    timer = 10

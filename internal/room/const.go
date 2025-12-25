@@ -9,10 +9,10 @@ func DefaultManagerConfig() ManagerConfig {
 
 func DefaultRoomConfig() Config {
 	return Config{
-		rejectJoins:     false,
-		autoStart:       false,
-		allowSpectators: true,
-		allowAnonymous:  false,
+		RejectJoins:     true,
+		AutoStart:       false,
+		AllowSpectators: false,
+		AllowAnonymous:  false,
 	}
 }
 

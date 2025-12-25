@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/theWebPartyTime/server/internal/conditions"
 	"github.com/theWebPartyTime/server/internal/input"
@@ -13,17 +14,17 @@ import (
 )
 
 func createRoom(owner string, hash string,
-	sendToPlayers func(string, []byte), sendToSpectators func(string, []byte)) (string, error) {
+	sendToPlayers func(string, []byte), sendToSpectators func(string, []byte)) (string, time.Time, error) {
 
 	filePath := scriptsPath + hash
 	partyFlow, err := partyflow.New().FromFile(filePath, os.Stdout)
 	if err != nil {
-		return "", fmt.Errorf("PartyFlow build failed:\n\t- %w", err)
+		return "", time.Time{}, fmt.Errorf("PartyFlow build failed:\n\t- %w", err)
 	}
 
 	room, err := rmManager().Allocate(owner, room.DefaultRoomConfig())
 	if err != nil {
-		return "", fmt.Errorf("Room allocation failed:\n\t- %w", err)
+		return "", time.Time{}, fmt.Errorf("Room allocation failed:\n\t- %w", err)
 	}
 
 	partyFlow.AddInputChecker("text", input.GetTextChecker())
@@ -62,43 +63,43 @@ func createRoom(owner string, hash string,
 		var voteMap map[string]int = nil
 
 		queryType := partyQuery.Input["type"].(string)
-		if queryType == "voting" {
+		if queryType == "vote all" {
 			voteMap = make(map[string]int)
 		}
 
-		for _, input := range inputs {
+		for userID, input := range inputs {
 			inputType := input.Type
 			if inputType != "input" {
-				log.Printf("Wrong input type sent in by <%s>", input.UserID)
+				log.Printf("Wrong input type sent in by <%s>", userID)
 				continue
 			}
 
 			step, ok := input.Content["step"].(float64)
 			if !ok {
-				log.Printf("Step not specified or specified incorrectly by <%s>", input.UserID)
+				log.Printf("Step not specified or specified incorrectly by <%s>", userID)
 				continue
 			}
 
 			message, ok := input.Content["message"].(string)
 			if !ok {
-				log.Printf("Content input not specified or specified incorrectly by <%s>", input.UserID)
+				log.Printf("Content input not specified or specified incorrectly by <%s>", userID)
 				continue
 			}
 
 			contentType, ok := input.Content["type"].(string)
 			log.Printf("User passed type %v\n", contentType)
 			if !ok {
-				log.Printf("Content input type not specified or specified incorrectly by <%s>", input.UserID)
+				log.Printf("Content input type not specified or specified incorrectly by <%s>", userID)
 				continue
 			}
 
 			if contentType != queryType || step != float64(partyQuery.Step) {
 				log.Printf("User <%s> input relevance check failed: tried step %v, type %v (when need step %v, type %v)",
-					input.UserID, step, contentType, partyQuery.Step, queryType)
+					userID, step, contentType, partyQuery.Step, queryType)
 				continue
 			}
 
-			if queryType == "voting" {
+			if queryType == "vote all" {
 				_, ok = voteMap[message]
 				if !ok {
 					voteMap[message] = 0
@@ -132,8 +133,8 @@ func createRoom(owner string, hash string,
 				}
 
 				if checker.IsCorrect(message, correct) {
-					log.Printf("User %v won\n", input.UserID)
-					winners = append(winners, input.UserID)
+					log.Printf("User %v won\n", userID)
+					winners = append(winners, userID)
 				}
 			}
 		}
@@ -141,11 +142,11 @@ func createRoom(owner string, hash string,
 		return winners
 	})
 
-	partyFlow.OnGetVoteCandidates(func(partyQuery *partyflow.PartyQuery) map[string]string {
+	partyFlow.OnGetInputs(func(partyQuery *partyflow.PartyQuery) map[string]string {
 		res := make(map[string]string)
 
-		for _, input := range room.GetInputs() {
-			res[input.UserID] = input.Content["message"].(string)
+		for userID, input := range room.GetInputs() {
+			res[userID] = input.Content["message"].(string)
 		}
 
 		return res
@@ -156,24 +157,17 @@ func createRoom(owner string, hash string,
 	})
 
 	partyFlow.OnFinished(func() {
-		null, _ := json.Marshal(nil)
-		sendToPlayers(room.GetCode(), null)
-		sendToSpectators(room.GetCode(), null)
+		endMsg, _ := json.Marshal(response{
+			Type:    "room_ended",
+			Message: map[string]any{},
+		})
+
+		sendToPlayers(room.GetCode(), endMsg)
+		sendToSpectators(room.GetCode(), endMsg)
 		room.Stop()
 	})
 
 	room.AttachPartyFlow(partyFlow)
 
-	return room.GetCode(), nil
-}
-
-func startRoom(roomCode string) error {
-	room, _, exists := rmManager().Room(roomCode)
-
-	if exists {
-		return room.Start(false)
-
-	}
-
-	return fmt.Errorf("Room <%s> not found.", roomCode)
+	return room.GetCode(), room.GetCreatedAt(), nil
 }
