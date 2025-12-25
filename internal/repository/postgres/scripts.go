@@ -61,11 +61,11 @@ func (r *postgresScriptsRepo) GetScriptByHash(ctx context.Context, scriptHash st
 }
 
 func (r *postgresScriptsRepo) CreateScript(ctx context.Context, script models.Script) error {
-	return r.db.WithContext(ctx).Create(script).Error
+	return r.db.WithContext(ctx).Create(&script).Error
 }
 
 func (r *postgresScriptsRepo) UpdateScript(ctx context.Context, script models.Script) error {
-	return r.db.WithContext(ctx).Save(script).Error
+	return r.db.WithContext(ctx).Save(&script).Error
 }
 
 func (r *postgresScriptsRepo) DeleteScript(ctx context.Context, scriptHash string) error {

@@ -128,6 +128,8 @@ func corsMiddleware() gin.HandlerFunc {
 			"http://127.0.0.1:5174",
 			"http://webparty.fun",
 			"https://webparty.fun",
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
 		},
 		AllowMethods: []string{
 			"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS",
@@ -138,6 +140,7 @@ func corsMiddleware() gin.HandlerFunc {
 			"Authorization",
 		},
 		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
+
+		MaxAge: 12 * time.Hour,
 	})
 }

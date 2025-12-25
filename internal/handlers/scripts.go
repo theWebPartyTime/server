@@ -116,7 +116,7 @@ func (h *ScriptsHandler) UploadScript(c *gin.Context) {
 	public, err := strconv.ParseBool(c.PostForm("public"))
 	if err != nil {
 		public = false
-		c.JSON(http.StatusBadRequest, gin.H{"error": "script file is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "public must be boolean"})
 		return
 	}
 
